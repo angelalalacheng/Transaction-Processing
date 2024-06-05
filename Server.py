@@ -114,20 +114,31 @@ class Server:
             cursor.execute("SELECT loan_id from Books WHERE book_id = ?", (book_id,))
             loan_id = cursor.fetchone()[0]
 
-            cursor.execute("UPDATE Books SET status = 'Available', loan_id = NULL WHERE book_id = ?", (book_id,))
+            if not loan_id:
+                result = {"status": "Failed", "message": f"Book {book_id} is not borrowed"}
 
-            cursor.execute("UPDATE Loans SET return_date = ? WHERE loan_id = ?", (return_date, loan_id))
-            
-            conn_db.commit()
-            result = {"status": "Success", "message": f"Book {book_id} is returned", "return_value": {"loan_id": loan_id}}
+            elif self.book_available(cursor, book_id):
+                result = {"status": "Failed", "message": f"Book {book_id} is now available"}
+
+            else:
+                cursor.execute("UPDATE Books SET status = 'Available', loan_id = NULL WHERE book_id = ?", (book_id,))
+
+                cursor.execute("UPDATE Loans SET return_date = ? WHERE loan_id = ?", (return_date, loan_id))
+                
+                conn_db.commit()
+                result = {"status": "Success", "message": f"Book {book_id} is returned", "return_value": {"loan_id": loan_id}}
         
         elif action == 'update_loan':
             return_date = parameters['return_date']
             loan_id = return_value.get("loan_id")
 
-            cursor.execute("UPDATE Loans SET return_date = ? WHERE loan_id = ?", (return_date, loan_id))
-            conn_db.commit()
-            result = {"status": "Success", "message": f"Loan {loan_id} closed", "return_value": {"loan_id": loan_id}}
+            if self.loan_exist(cursor, loan_id):
+                cursor.execute("UPDATE Loans SET return_date = ? WHERE loan_id = ?", (return_date, loan_id))
+                conn_db.commit()
+                result = {"status": "Success", "message": f"Loan {loan_id} closed", "return_value": {"loan_id": loan_id}}
+
+            else:
+                result = {"status": "Failed", "message": f"Loan doesn't exist"}
         
         elif action == 'query_user':
             user_id = parameters['user_id']
@@ -135,14 +146,14 @@ class Server:
             cursor.execute("SELECT * FROM Users WHERE user_id = ?", (user_id,))
             user_info = cursor.fetchone()
             if not user_info:
-                result = {"status": "Failed", "message": f"User {user_id} not the member in {node}"}
+                result = {"status": "Failed", "message": f"User {user_id} not the member in {self.db_name}"}
             result = {"status": "Success", "data": user_info}
         
         elif action == 'track_loans':
             cursor.execute("SELECT * FROM Loans WHERE loan_id IN (SELECT loan_id FROM Books WHERE status = 'Borrowed')")
             unreturned_loans = cursor.fetchall()
             if not unreturned_loans:
-                result = {"status": "Failed", "message": f"All books in {node} are available"}
+                result = {"status": "Success", "message": f"All books in {self.db_name} are available"}
             else:
                 result = {"status": "Success", "data": unreturned_loans}
         
@@ -170,6 +181,11 @@ class Server:
         cursor.execute("SELECT status FROM Books WHERE book_id = ?", (book_id,))
         book_status = cursor.fetchone()[0]
         return True if book_status == 'Available' else False
+    
+    def loan_exist(self, cursor, loan_id):
+        cursor.execute("SELECT * FROM Loans WHERE loan_id = ?", (loan_id,))
+        loan_info = cursor.fetchone()
+        return True if loan_info else False
 
 
     def start(self):

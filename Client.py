@@ -1,14 +1,18 @@
 import socket
 import pickle
-from Partition import PartitionStrategy
+import threading
+from time import sleep
 from Transaction import Transaction
 from Hop import Hop
 
 class Client:
-    def __init__(self, servers, id, location):
+    def __init__(self, servers, id, location, max_retries=3):
         self.servers = servers
         self.id = id
         self.location = location
+        self.max_retries = max_retries
+        self.lock = threading.Lock()
+
 
     def send_hop(self, server, hop, return_value=None):
         server_host, server_port = self.servers[server]
@@ -20,24 +24,36 @@ class Client:
             return pickle.loads(response)
 
     def send_transaction(self, transaction):
-        return_value = None
-        # Execute the first hop
-        first_hop = transaction.hops[0]
-        response = self.send_hop(first_hop.node, first_hop)
-        
-        if response.get('status') == 'Failed':
-            print(f"## Transaction {transaction.transaction_id} aborted at first hop {first_hop.node}")
-            return
-        return_value = response.get('return_value', None)
-        print(f"First hop {first_hop.node} completed successfully")
+        with self.lock:  #
+            return_value = None
+            # Execute the first hop
+            first_hop = transaction.hops[0]
+            response = self.send_hop(first_hop.node, first_hop)
+            
+            if response.get('status') == 'Failed':
+                print(f"## Transaction {transaction.transaction_id} aborted at first hop {first_hop.node}")
+                return
+            return_value = response.get('return_value', None)
+            print(f"First hop {first_hop.node} completed successfully for Transaction {transaction.transaction_id}")
 
-        # Execute subsequent hops with retry logic
-        for hop in transaction.hops[1:]:
-            result = self.send_hop(hop.node, hop, return_value)
-            return_value = result.get("return_value", None)    
+            # Execute the rest of the hops and retry if necessary
+            for hop in transaction.hops[1:]:
+                retries = 0
+                print(f"Executing hop {hop.hop_id} for Transaction {transaction.transaction_id}")
+                while retries < self.max_retries:
+                    response = self.send_hop(hop.node, hop, return_value)
+                    if response.get('status') == 'Success':
+                        return_value = response.get('return_value', None)
+                        break
+                    else:
+                        retries += 1
+                        print(f"Retrying hop {hop.hop_id} for transaction {transaction.transaction_id}, attempt {retries}")
+                        sleep(1)
+                if retries == self.max_retries:
+                    print(f"Transaction {transaction.transaction_id} failed at hop {hop.node} after {self.max_retries} retries")
+                    return
 
-        print(f"## Transaction {transaction.transaction_id} completed successfully")
-
+            print(f"## Transaction {transaction.transaction_id} completed successfully")
 
 
     def add_user(self, t_id, params):
@@ -115,7 +131,7 @@ class Client:
         return nodes
 
 
-if __name__ == "__main__":
+def simulate_concurrent_transactions():
     servers = {
         'Library A': ('localhost', 9000),
         'Library B': ('localhost', 9001),
@@ -127,36 +143,48 @@ if __name__ == "__main__":
     librarian3 = Client(servers, 3001, 'Library C')
     member1 = Client(servers, 1002, 'Library A')
 
-    # T1
-    member1.borrow_book(1, {'book_id': 2002, 
-                            'user_id': member1.id, 
-                            'borrow_date': '2023-02-01', 
-                            'due_date': '2023-03-01'})
-    
-    member1.borrow_book(8, {'book_id': 4002, 
-                            'user_id': member1.id, 
-                            'borrow_date': '2023-02-01', 
-                            'due_date': '2023-03-01'})
-    # T2
-    librarian1.add_user(2, {'user_id': 1004, 
-                            'name': 'User 4', 
-                            'email': 'user4@example.com', 
-                            'membership': librarian1.location})
-    # T3
-    librarian2.add_book(3, {'book_id': 2004, 
-                            'title': 'Book 4', 
-                            'author': 'Author 4', 
-                            'publication_date': '2023-01-01', 
-                            'category': 'Fiction', 
-                            'status': 'Available'})
-    # T4
-    librarian3.delete_book(4, {'book_id': 3001})
-    # T5
-    librarian1.query_user(5, {'user_id': 1004})    
-    # T6
-    librarian2.track_loans(6, {})
-    # T7
-    member1.return_book(7, {'book_id': 2002, 
-                            'return_date': '2023-02-10'})
+    threads = []
+
+    t1 = threading.Thread(target=member1.borrow_book, args=(1, {'book_id': 2002, 
+                                                                'user_id': member1.id, 
+                                                                'borrow_date': '2023-02-01', 
+                                                                'due_date': '2023-03-01'}))
+    threads.append(t1)
+
+    t2 = threading.Thread(target=librarian1.add_user, args=(2, {'user_id': 1004, 
+                                                                'name': 'User 4', 
+                                                                'email': 'user4@example.com', 
+                                                                'membership': librarian1.location}))
+    threads.append(t2)
+
+    t3 = threading.Thread(target=librarian2.add_book, args=(3, {'book_id': 2004, 
+                                                                'title': 'Book 4', 
+                                                                'author': 'Author 4', 
+                                                                'publication_date': '2023-01-01', 
+                                                                'category': 'Fiction', 
+                                                                'status': 'Available'}))
+    threads.append(t3)
+
+    t4 = threading.Thread(target=librarian3.delete_book, args=(4, {'book_id': 3001}))
+    threads.append(t4)
+
+    t5 = threading.Thread(target=librarian1.query_user, args=(5, {'user_id': 1004}))
+    threads.append(t5)
+
+    t6 = threading.Thread(target=librarian2.track_loans, args=(6, {}))
+    threads.append(t6)
+
+    t7 = threading.Thread(target=member1.return_book, args=(7, {'book_id': 2002, 
+                                                                'return_date': '2023-02-10'}))
+    threads.append(t7)
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+if __name__ == "__main__":
+    simulate_concurrent_transactions()
 
 
