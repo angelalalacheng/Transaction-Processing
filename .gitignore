@@ -1,1 +1,3 @@
-library_system.db
+Library*
+*.db
+__pycache__/

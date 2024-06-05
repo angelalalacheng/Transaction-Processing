@@ -2,67 +2,35 @@ import socket
 import sqlite3
 import threading
 import pickle
-from Transaction import Transaction
 
 class Server:
-    def __init__(self, host, port):
+    def __init__(self, host, port, db_name):
         self.host = host
         self.port = port
+        self.db_name = db_name
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((self.host, self.port))
         self.socket.listen(5)
-        print("Server started and listening on", (self.host, self.port))
-
+        print(f"Server started and listening on {self.host}:{self.port} for database {self.db_name}")
 
     def handle_client(self, conn, addr):
         print(f"Connected by {addr}")
+        print(f"At Database: {self.db_name}, Port: {self.port}, Host: {self.host}")
 
         while True:
             data = conn.recv(1024)
             if not data:
                 break
-            received_transaction = pickle.loads(data)
-            self.process_transaction(conn, received_transaction)
+            received_data = pickle.loads(data)
+            hop = received_data['hop']
+            return_value = received_data.get('return_value', None)
+            result = self.execute_action(hop.node, hop.action, hop.parameters, return_value)
+            conn.sendall(pickle.dumps(result))
 
         conn.close()
 
-
-    def process_transaction(self, conn, transaction):
-        return_value = None
-
-        print({"status": "Begin", "message": f"Transaction{transaction.transaction_id} begin"})
-    
-        first_hop_result = self.exec_first_hop(conn, transaction.transaction_id, transaction.hops[0])
-        if first_hop_result.get("status") == "Abort":
-            return None
-        else:
-            return_value = first_hop_result.get("return_value", None)
-
-        for hop in transaction.hops[1:]:
-            result = self.execute_action(hop.node, hop.action, hop.parameters, return_value)
-            return_value = result.get("return_value", None)
-
-            
-        print({"status": "Complete", "message": f"Transaction{transaction.transaction_id} complete"})
-    
-
-    def exec_first_hop(self, conn, t_id, hop):
-        result = self.execute_action(hop.node, hop.action, hop.parameters)
-
-        transaction_result = {}
-        if result.get("status") == "Failed":
-            transaction_result = {"status": "Abort", "message": f"Transaction{t_id} abort"}
-        else:
-            transaction_result = {"status": "Commit", "message": f"Transaction{t_id} committed"}
-        
-        conn.sendall(pickle.dumps(transaction_result))
-
-        transaction_result.update({"return_value": result.get("return_value", None)})
-        return transaction_result
-
-
     def execute_action(self, node, action, parameters, return_value = None):
-        conn_db = sqlite3.connect(node)
+        conn_db = sqlite3.connect(self.db_name)
         cursor = conn_db.cursor()
 
         result = {}
@@ -114,15 +82,18 @@ class Server:
             borrow_date = parameters['borrow_date']
             due_date = parameters['due_date']
 
-            if self.book_available(cursor, book_id):
-                cursor.execute("INSERT INTO Loans (book_id, user_id, borrow_date, due_date) VALUES (?, ?, ?, ?)", 
-                            (book_id, user_id, borrow_date, due_date))
-                loan_id = cursor.lastrowid
-                cursor.execute("UPDATE Books SET status = 'Borrowed', loan_id = ? WHERE book_id = ?", (loan_id, book_id))
-                conn_db.commit()
-                result = {"status": "Success", "message": f"User {user_id} borrowed book {book_id}", "return_value": {"loan_id": loan_id}}
+            if self.book_exist(cursor, book_id):
+                if self.book_available(cursor, book_id): 
+                    cursor.execute("INSERT INTO Loans (book_id, user_id, borrow_date, due_date) VALUES (?, ?, ?, ?)", 
+                                (book_id, user_id, borrow_date, due_date))
+                    loan_id = cursor.lastrowid
+                    cursor.execute("UPDATE Books SET status = 'Borrowed', loan_id = ? WHERE book_id = ?", (loan_id, book_id))
+                    conn_db.commit()
+                    result = {"status": "Success", "message": f"User {user_id} borrowed book {book_id}", "return_value": {"loan_id": loan_id}}
+                else:
+                    result = {"status": "Failed", "message": f"Book {book_id} is not available"}
             else:
-                result = {"status": "Failed", "message": f"Book {book_id} is not available"}
+                result = {"status": "Failed", "message": f"Book {book_id} is not exist"}
 
         elif action == 'add_loan':
             book_id = parameters['book_id']
@@ -130,7 +101,7 @@ class Server:
             borrow_date = parameters['borrow_date']
             due_date = parameters['due_date']
             loan_id = return_value.get("loan_id")
-
+            print(f"Add Loans at {self.db_name} / {self.port}")
             cursor.execute("INSERT INTO Loans (loan_id, book_id, user_id, borrow_date, due_date) VALUES (?, ?, ?, ?, ?)", 
                         (loan_id, book_id, user_id, borrow_date, due_date))
             conn_db.commit()
@@ -209,7 +180,11 @@ class Server:
 
 if __name__ == "__main__":
     HOST = 'localhost'
-    PORT = 9000
+    PORTS = [9000, 9001, 9002]
+    DB_NAMES = ['Library A', 'Library B', 'Library C']
 
-    server = Server(HOST, PORT)
-    server.start()
+    servers = []
+    for port, db_name in zip(PORTS, DB_NAMES):
+        server = Server(HOST, port, db_name)
+        threading.Thread(target=server.start).start()
+        servers.append(server)
