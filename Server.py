@@ -14,20 +14,7 @@ class Server:
         print(f"Server started and listening on {self.host}:{self.port} for database {self.db_name}")
 
     def handle_client(self, conn, addr):
-        print(f"Connected by {addr}")
-        print(f"At Database: {self.db_name}, Port: {self.port}, Host: {self.host}")
-
-        while True:
-            data = conn.recv(1024)
-            if not data:
-                break
-            received_data = pickle.loads(data)
-            hop = received_data['hop']
-            return_value = received_data.get('return_value', None)
-            result = self.execute_action(hop.node, hop.action, hop.parameters, return_value)
-            conn.sendall(pickle.dumps(result))
-
-        conn.close()
+        raise NotImplementedError("Must be implemented by subclass.")
 
     def execute_action(self, node, action, parameters, return_value = None):
         conn_db = sqlite3.connect(self.db_name)
@@ -194,6 +181,79 @@ class Server:
             threading.Thread(target=self.handle_client, args=(conn, addr)).start()
 
 
+class BaseServer(Server):
+    def handle_client(self, conn, addr):
+        print(f"Connected by {addr}")
+        print(f"At Database: {self.db_name}, Port: {self.port}, Host: {self.host}")
+
+        while True:
+            try:
+                data = conn.recv(1024)
+                if not data:
+                    break
+                received_data = pickle.loads(data)
+                hop = received_data['hop']
+                return_value = received_data.get('return_value', None)
+
+                result = self.execute_action(hop.node, hop.action, hop.parameters, return_value)
+                conn.sendall(pickle.dumps(result))
+            except Exception as e:
+                print(f"Error handling client {addr}: {e}")
+                break
+
+        conn.close()
+
+
+class OriginOrderServer(Server):
+    def __init__(self, host, port, db_name):
+        super().__init__(host, port, db_name)
+        self.sequence_number = 0
+        self.sequence_numbers = {}
+
+    def get_sequence_number(self):
+        self.sequence_number += 1
+        return self.sequence_number
+    
+    def handle_client(self, conn, addr):
+        print(f"Connected by {addr}")
+        print(f"At Database: {self.db_name}, Port: {self.port}, Host: {self.host}")
+
+        while True:
+            try:
+                data = conn.recv(1024)
+                if not data:
+                    break
+                received_data = pickle.loads(data)
+
+                # Case 1: Get sequence numbe
+                if 'get_sequence_number' in received_data:
+                    sequence_number = self.get_sequence_number()
+                    conn.sendall(pickle.dumps(sequence_number))
+                    continue
+
+                # Case 2: Process hop data
+                hop = received_data['hop']
+                return_value = received_data.get('return_value', None)
+                sequence_number = received_data.get('sequence_number')
+
+                if hop.node not in self.sequence_numbers:
+                    self.sequence_numbers[hop.node] = []
+
+                self.sequence_numbers[hop.node].append((sequence_number, hop, return_value))
+                self.sequence_numbers[hop.node].sort()  # Ensure hops are processed in order
+
+                while self.sequence_numbers[hop.node]:
+                    seq_num, hop, return_value = self.sequence_numbers[hop.node].pop(0)
+                    result = self.execute_action(hop.node, hop.action, hop.parameters, return_value)
+                    conn.sendall(pickle.dumps(result))
+            
+            except Exception as e:
+                print(f"Error handling client {addr}: {e}")
+                break
+
+        conn.close()
+
+
 if __name__ == "__main__":
     HOST = 'localhost'
     PORTS = [9000, 9001, 9002]
@@ -201,6 +261,6 @@ if __name__ == "__main__":
 
     servers = []
     for port, db_name in zip(PORTS, DB_NAMES):
-        server = Server(HOST, port, db_name)
+        server = OriginOrderServer(HOST, port, db_name)
         threading.Thread(target=server.start).start()
         servers.append(server)
