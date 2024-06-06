@@ -140,7 +140,7 @@ class Server:
             cursor.execute("SELECT * FROM Loans WHERE loan_id IN (SELECT loan_id FROM Books WHERE status = 'Borrowed')")
             unreturned_loans = cursor.fetchall()
             if not unreturned_loans:
-                result = {"status": "Failed", "message": f"All books in {self.db_name} are available"}
+                result = {"status": "Success", "message": f"All books in {self.db_name} are available"}
             else:
                 result = {"status": "Success", "data": unreturned_loans}
         
@@ -261,6 +261,6 @@ if __name__ == "__main__":
 
     servers = []
     for port, db_name in zip(PORTS, DB_NAMES):
-        server = OriginOrderServer(HOST, port, db_name)
+        server = BaseServer(HOST, port, db_name)
         threading.Thread(target=server.start).start()
         servers.append(server)

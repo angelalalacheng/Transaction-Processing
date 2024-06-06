@@ -190,10 +190,10 @@ if __name__ == "__main__":
         'Library C': ('localhost', 9002)
     }
 
-    librarian1 = OriginOrderClient(servers, 1001, 'Library A')
-    librarian2 = OriginOrderClient(servers, 2001, 'Library B')
-    librarian3 = OriginOrderClient(servers, 3001, 'Library C')
-    member1 = OriginOrderClient(servers, 1002, 'Library A')
+    librarian1 = BaseClient(servers, 1001, 'Library A')
+    librarian2 = BaseClient(servers, 2001, 'Library B')
+    librarian3 = BaseClient(servers, 3001, 'Library C')
+    member1 = BaseClient(servers, 1002, 'Library A')
     
     # # T1
     # member1.borrow_book(1, {'book_id': 2002, 
