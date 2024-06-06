@@ -153,7 +153,7 @@ class Server:
             cursor.execute("SELECT * FROM Loans WHERE loan_id IN (SELECT loan_id FROM Books WHERE status = 'Borrowed')")
             unreturned_loans = cursor.fetchall()
             if not unreturned_loans:
-                result = {"status": "Success", "message": f"All books in {self.db_name} are available"}
+                result = {"status": "Failed", "message": f"All books in {self.db_name} are available"}
             else:
                 result = {"status": "Success", "data": unreturned_loans}
         
