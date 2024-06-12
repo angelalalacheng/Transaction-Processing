@@ -194,37 +194,6 @@ if __name__ == "__main__":
     librarian2 = BaseClient(servers, 2001, 'Library B')
     librarian3 = BaseClient(servers, 3001, 'Library C')
     member1 = BaseClient(servers, 1002, 'Library A')
-    
-    # # T1
-    # member1.borrow_book(1, {'book_id': 2002, 
-    #                         'user_id': member1.id, 
-    #                         'borrow_date': '2023-02-01', 
-    #                         'due_date': '2023-03-01'})
-    
-    # # T6
-    # librarian2.track_loans(6, {}) 
-
-    # # T2
-    # librarian1.add_user(2, {'user_id': 1004, 
-    #                         'name': 'User 4', 
-    #                         'email': 'user4@example.com', 
-    #                         'membership': librarian1.location})
-    # # T3
-    # librarian2.add_book(3, {'book_id': 2004, 
-    #                         'title': 'Book 4', 
-    #                         'author': 'Author 4', 
-    #                         'publication_date': '2023-01-01', 
-    #                         'category': 'Fiction', 
-    #                         'status': 'Available'})
-    # # T4
-    # librarian3.delete_book(4, {'book_id': 3001})
-    # # T5
-    # librarian1.query_user(5, {'user_id': 1004})   
-
-
-    # # T7
-    # member1.return_book(7, {'book_id': 2002, 
-    #                         'return_date': '2023-02-10'})
 
     threads = []
 
